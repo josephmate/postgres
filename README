@@ -1,6 +1,28 @@
 I attempt to add an ui to interrupt the optimizer so that the user can do some
 final modificaitons.
 
+building instructions:
+# add these to .bashrc
+export PG_DB=$HOME/pgdb
+export PG_BUILD=$HOME/pgbuild
+export PATH=$PATH:$PG_BUILD/bin
+export LD_LIBRARY_PATH=$PG_BUILD/lib
+mkdir -p $PG_BUILD
+mkdir -p $PG_DB
+
+# run these from repo root
+# disable optimization (makes it easier to line by line debug)
+./configure CFLAGS=-O0 --enable-debug --enable-cassert --prefix=$PG_BUILD
+# treat warnings as errors
+echo COPT=-Werror > src/Makefile.custom
+make
+make install
+
+# these can be run from anywhere
+initdb --locale=C -D $PG_DB
+postmaster -p 13370 -D $PG_DB
+createdb -p 13370 mytest
+
 PostgreSQL Database Management System
 =====================================
 
