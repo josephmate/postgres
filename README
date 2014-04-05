@@ -23,6 +23,23 @@ initdb --locale=C -D $PG_DB
 postmaster -p 13370 -D $PG_DB
 createdb -p 13370 mytest
 
+#setup eclipse
+1. File  -> Import
+2. C/C++ -> Existing Code as Makefile Project
+3. a. 'Existing Code Location' navigate to folder
+   b. 'Languages' uncheck 'C++'
+   c. 'Languages'   check 'C'
+   d. 'Toolchain for Indexer Settings': Linux GCC
+4. Finish
+5. a. Right click on the project
+   b. Properties
+   c. C/C++General
+   d. Path and Symbols
+   e. includes tab
+   f. i.  add
+      ii. browse to workspace's include directory
+
+
 PostgreSQL Database Management System
 =====================================
 
