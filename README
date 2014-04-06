@@ -36,8 +36,11 @@ createdb -p 13370 mytest
    c. C/C++General
    d. Path and Symbols
    e. includes tab
-   f. i.  add
-      ii. browse to workspace's include directory
+   f. i.   add
+      ii.  browse to workspace's include directory
+   h. i.   add
+      ii.  filesystem
+      iii. /usr/include/gtk-3.0
 
 
 PostgreSQL Database Management System
