@@ -6,11 +6,6 @@ scriptdir=`dirname $0`;
 cd $scriptdir;
 scriptdir=`pwd`
 
-if [ "$#" -ne 1 ]; then
-	echo "need to provde the sql script to run"
-	exit -1
-fi
-
 echo "previous dir: $prevdir"
 echo "script dir: $scriptdir"
 #########################################
@@ -43,7 +38,7 @@ runTest() {
 	sleep 1
 }
 
-runTest $1
+runTest ListManagerNameAndTheirDno.sql
 
 cd $prevdir;
 
