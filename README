@@ -20,7 +20,7 @@ make install
 
 # these can be run from anywhere
 initdb --locale=C -D $PG_DB
-postmaster -p 13370 -D $PG_DB
+postmaster -p 13370 -D $PG_DB > out.log 2>&1 &
 createdb -p 13370 mytest
 
 #setup eclipse

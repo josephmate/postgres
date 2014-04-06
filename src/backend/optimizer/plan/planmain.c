@@ -28,6 +28,7 @@
 #include "optimizer/planmain.h"
 #include "optimizer/tlist.h"
 #include "utils/selfuncs.h"
+#include "ui/optimizer_ui.h"
 
 
 /*
@@ -418,6 +419,8 @@ query_planner(PlannerInfo *root, List *tlist,
 			sortedpath = NULL;
 		}
 	}
+
+	prompt_user_for_plan(&cheapestpath);
 
 	*cheapest_path = cheapestpath;
 	*sorted_path = sortedpath;
