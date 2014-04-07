@@ -37,6 +37,35 @@ insert into emp values(107,'Jack',1);
 insert into emp values(204,'Jen',2);
 insert into emp values(301,'John',3);
 
+create table emp2(
+eno int, 
+ename char(10), 
+dno int,
+primary key (eno),
+foreign key (dno) references dept(dno));
+insert into emp2 values(101,'Smith',1);
+insert into emp2 values(201,'Kevin',2);
+insert into emp2 values(105,'Sally',1);
+insert into emp2 values(102,'Matt',1);
+insert into emp2 values(402,'Jeff',4);
+insert into emp2 values(205,'Amy',2);
+insert into emp2 values(401,'Tom',4);
+insert into emp2 values(202,'Alex',2);
+insert into emp2 values(103,'Sam',1);
+insert into emp2 values(302,'Joe',3);
+insert into emp2 values(304,'Sean',3);
+insert into emp2 values(206,'Martin',2);
+insert into emp2 values(203,'Simon',2);
+insert into emp2 values(104,'Jane',1);
+insert into emp2 values(501,'Max',5);
+insert into emp2 values(303,'Mike',3);
+insert into emp2 values(106,'Sarah',1);
+insert into emp2 values(107,'Jack',1);
+insert into emp2 values(204,'Jen',2);
+insert into emp2 values(301,'John',3);
+CREATE INDEX emp2dnoidx on emp2(dno);
+
+
 create table manages(
 eno int,
 dno int,

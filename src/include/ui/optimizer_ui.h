@@ -10,7 +10,7 @@
 
 #include "nodes/relation.h"
 
-extern void prompt_user_for_plan(Path **cheapest_path);
+extern void prompt_user_for_plan(PlannerInfo *root, Path **cheapest_path);
 
 
 #endif /* OPTIMIZER_UI_H_ */

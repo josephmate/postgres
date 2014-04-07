@@ -420,7 +420,7 @@ query_planner(PlannerInfo *root, List *tlist,
 		}
 	}
 
-	prompt_user_for_plan(&cheapestpath);
+	prompt_user_for_plan(root, &cheapestpath);
 
 	*cheapest_path = cheapestpath;
 	*sorted_path = sortedpath;

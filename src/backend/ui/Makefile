@@ -15,6 +15,6 @@ include $(top_builddir)/src/Makefile.global
 # gtk header files and their dependencies
 override CPPFLAGS+=$(shell pkg-config gtk+-3.0 --cflags)
 
-OBJS = optimizer_ui.o
+OBJS = optimizer_ui.o cstr_out.o
 
 include $(top_srcdir)/src/backend/common.mk
