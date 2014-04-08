@@ -7,6 +7,7 @@
 
 // standard libraries
 #include <stdio.h>
+#include <math.h>
 
 // postgres libraries
 #include "postgres.h"
@@ -79,6 +80,8 @@ struct NodeGridState {
 };
 typedef struct GridState UIStGridStateate;
 
+
+
 static void btn_clicked(GtkWidget* widget, gpointer data) {
 	printf("CLICKED\n");
 	fflush(stdout);
@@ -125,15 +128,11 @@ static int compute_height(Path* path_so_far) {
 	if(path_so_far == NULL) {
 		return 0;
 	} else if(isJoinPath(path_so_far)) {
-		int best,right;
 		JoinPath * joinPath;
 		joinPath = (JoinPath *)path_so_far;
-		best = compute_height(joinPath->outerjoinpath);
-		right = compute_height(joinPath->innerjoinpath);
-		if(right > best) {
-			best = right;
-		}
-		return best + 1;
+		return 1 + fmax(
+				compute_height(joinPath->outerjoinpath),
+				compute_height(joinPath->innerjoinpath));
 	} else if(isLeafPath(path_so_far)) {
 		return 1;
 	} else {
@@ -234,11 +233,13 @@ static GtkWidget * make_leaf_node_widget(UIState* state, Path* path) {
 
 static void setup_grid_recurse(UIState * state, Path* path, GtkGrid *grid, int r, int c, int height) {
 	if(isJoinPath(path)) {
+		int branchDistance;
 		JoinPath* joinpath;
 		joinpath = (JoinPath*)path;
-		gtk_grid_attach(grid, make_join_node_widget(state,joinpath), c,r,1,1);
-		setup_grid_recurse(state, joinpath->outerjoinpath, grid, r+1, c-1, height-1);
-		setup_grid_recurse(state, joinpath->innerjoinpath, grid, r+1, c+1, height-1);
+		branchDistance = pow(2, height-2);
+		gtk_grid_attach(grid, make_join_node_widget(state,joinpath),c,r,1,1);
+		setup_grid_recurse(state, joinpath->outerjoinpath, grid, r+1, c-branchDistance, height-1);
+		setup_grid_recurse(state, joinpath->innerjoinpath, grid, r+1, c+branchDistance, height-1);
 	} else if(isLeafPath(path)) {
 		gtk_grid_attach(grid, make_leaf_node_widget(state,path), c,r,1,1);
 	}
@@ -246,18 +247,16 @@ static void setup_grid_recurse(UIState * state, Path* path, GtkGrid *grid, int r
 
 static void setup_grid(GtkWidget *window, UIState * state) {
 	GtkGrid *grid;
-	int col;
 	grid = (GtkGrid*)gtk_grid_new();
 
-	if(state->height == 1) {
-		col = 0;
-	} else if(state->height == 2) {
-		col = 1;
-	} else {
-		col = 3;
-	}
 
-	setup_grid_recurse(state, *state->cheapest_path, grid, 0, col, state->height);
+	setup_grid_recurse(
+			state,
+			*state->cheapest_path,
+			grid,
+			0,
+			pow(2, state->height) -1,
+			state->height);
 
 	gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(grid));
 	gtk_widget_show(GTK_WIDGET(grid));
@@ -267,10 +266,12 @@ static void setup_grid(GtkWidget *window, UIState * state) {
 void prompt_user_for_plan(PlannerInfo *root, Path **cheapest_path) {
 	UIState state;
 	GtkWidget *window;
+	GtkWidget *scrolledWindow;
 
 	// setup GUI stuff
 	gtk_init(NULL, NULL);
 	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+	scrolledWindow = gtk_scrolled_window_new(NULL, NULL);
 	g_signal_connect(G_OBJECT(window), "delete_event", G_CALLBACK(delete_event_handler), NULL);
 	g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(destroy), NULL);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 10);
@@ -279,9 +280,11 @@ void prompt_user_for_plan(PlannerInfo *root, Path **cheapest_path) {
 	state.root = root;
 	state.cheapest_path = cheapest_path;
 	state.height = compute_height(*cheapest_path);
-	setup_grid(window, &state);
+	setup_grid(scrolledWindow, &state);
 
+	gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(scrolledWindow));
 	// show UI, and wait for the user to close it
+	gtk_widget_show(scrolledWindow);
 	gtk_widget_show(window);
 	gtk_main();
 }
