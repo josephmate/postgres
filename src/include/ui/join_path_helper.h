@@ -10,6 +10,7 @@
 
 #include "ui/optimizer_ui.h"
 
+MergePath* recreate_mergejoin_path(PathWrapperTree* pwt) ;
 HashPath* recreate_hashjoin_path(PathWrapperTree* pwt) ;
 NestPath* recreate_nlj_path(PathWrapperTree* pwt) ;
 

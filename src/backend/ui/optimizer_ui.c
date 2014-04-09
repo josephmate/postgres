@@ -177,7 +177,7 @@ static void update_path(PathWrapperTree* pwt) {
 	if(pwt->path->pathtype == T_HashJoin) {
 		pwt->path = (Path*)recreate_hashjoin_path(pwt);
 	} else if(pwt->path->pathtype == T_MergeJoin) {
-
+		pwt->path = (Path*)recreate_mergejoin_path(pwt);
 	} else if(pwt->path->pathtype == T_NestLoop) {
 		pwt->path = (Path*)recreate_nlj_path(pwt);
 	}
@@ -202,12 +202,13 @@ static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 	fflush(stdout);
 
 	selected = gtk_combo_box_text_get_active_text (pwt->ddl);
-
 	pwt->path = (Path*)recreate_hashjoin_path(pwt);
 	if(strcmp(selected,DDL_NLJ_OPTION) == 0) {
 		newpath = (Path*)recreate_nlj_path(pwt);
 	} else if(strcmp(selected,DDL_HASHJOIN_OPTION) == 0) {
 		newpath = (Path*)recreate_hashjoin_path(pwt);
+	}  else if(strcmp(selected,DDL_MERGEJOIN_OPTION) == 0) {
+		newpath = (Path*)recreate_mergejoin_path(pwt);
 	} else {
 		printf("no value was selected\n");
 		fflush(stdout);
