@@ -41,6 +41,9 @@ struct PathWrapperTree {
 	                         // by convention this is the only child of the root
 	int type; // one of PWT_*
 	Path * path;
+	bool cost_updated;
+	double orig_startup_cost;
+	double orig_total_cost;
 
 	GtkComboBoxText * ddl;   //the ddl for selecting a different node type
 };

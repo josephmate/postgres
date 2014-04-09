@@ -140,6 +140,9 @@ static PathWrapperTree* constructPWT_recurse(UIState* ui, Path*path, PathWrapper
 	ret->right = NULL;
 	ret->parent = parent;
 	ret->path = path;
+	ret->cost_updated = false;
+	ret->orig_startup_cost = path->startup_cost;
+	ret->orig_total_cost = path->total_cost;
 	if(isJoinPath(path)) {
 		JoinPath* joinpath = (JoinPath*)path;
 		ret->type = PWT_JOIN;
@@ -165,7 +168,6 @@ static PathWrapperTree* constructPWT(UIState* ui, Path*root) {
 	return ret;
 }
 
-
 static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 	char* selected;
 	PathWrapperTree* pwt = (PathWrapperTree*)data;
@@ -179,6 +181,8 @@ static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 		NestPath* nestpath;
 		nestpath = create_nlj_path(pwt);
 		pwt->path = (Path*)nestpath;
+		pwt->cost_updated = true;
+		//propogate_up(pwt->parent);
 		setup_grid(pwt->ui);
 	} else {
 		printf("no value was selected\n");
@@ -243,8 +247,19 @@ static GtkGrid * create_grid_from_path(
 	pos = 0;
 	buff = malloc(sizeof(char)*CSTR_BUFF);
 	rel = pwt->path->parent;
+
 	pos += snprintf(buff+pos, CSTR_BUFF-pos, "<span size=\"x-small\">");
+
+	pos += snprintf(buff+pos, CSTR_BUFF-pos,
+			"curr %.2f..%.2f\n", pwt->path->startup_cost,pwt->path->total_cost);
+
 	pos = cstr_rel(buff, pos, CSTR_BUFF-1, pwt->ui->plannerinfo, rel);
+
+	if(pwt->cost_updated) {
+		pos += snprintf(buff+pos, CSTR_BUFF-pos,
+				"orig %.2f..%.2f\n", pwt->orig_startup_cost, pwt->orig_total_cost);
+	}
+
 	pos += snprintf(buff+pos, CSTR_BUFF-pos, "</span>");
 	lblInfo = gtk_label_new( NULL );
 	gtk_label_set_markup(GTK_LABEL(lblInfo), buff);

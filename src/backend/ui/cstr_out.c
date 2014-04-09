@@ -326,9 +326,9 @@ cstr_pathnode(char* buff, int pos, int max, PlannerInfo *root, Path *path)
 	{
 		pos += snprintf(buff+pos, max-pos, "(");
 		pos = cstr_relids(buff,  pos,  max, path->parent->relids);
-		pos += snprintf(buff+pos, max-pos, ") rows=%.0f", path->parent->rows);
+		pos += snprintf(buff+pos, max-pos, ")");
 	}
-	pos += snprintf(buff+pos, max-pos," cost=%.2f..%.2f\n", path->startup_cost, path->total_cost);
+	pos += snprintf(buff+pos, max-pos," %.2f..%.2f\n", path->startup_cost, path->total_cost);
 
 	if (path->pathkeys)
 	{
@@ -363,7 +363,7 @@ cstr_rel(char* buff, int pos, int max, PlannerInfo *root, RelOptInfo *rel)
 {
 	ListCell   *l;
 
-	pos += snprintf(buff+pos, max-pos, "RELOPTINFO (");
+	pos += snprintf(buff+pos, max-pos, "(");
 	pos = cstr_relids(buff, pos, max, rel->relids);
 	pos += snprintf(buff+pos, max-pos, "): rows=%.0f width=%d\n", rel->rows, rel->width);
 	pos = cstr_relids_to_rte(buff, pos, max, root->parse->rtable, rel->relids);
