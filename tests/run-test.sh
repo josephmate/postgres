@@ -37,7 +37,7 @@ runTest() {
 	echo `ps aux | grep postmaster | grep jmate | grep -v grep`
 
 	sleep 1
-	psql -p 13370 -d mytest -a -f $sqlFile > $sqlFile.result.log
+	psql -p 13370 -d mytest -a -f $sqlFile 
 
 	kill $pid
 	sleep 1
