@@ -173,18 +173,14 @@ static void update_path(PathWrapperTree* pwt) {
 		return;
 	}
 	pwt->cost_updated = true;
-	pwt->path = (Path*)create_nlj_path(pwt);
 
-	//TODO: add other joins
-	/*
-	if(parent->path->pathtype == T_HashJoin) {
+	if(pwt->path->pathtype == T_HashJoin) {
+		pwt->path = (Path*)recreate_hashjoin_path(pwt);
+	} else if(pwt->path->pathtype == T_MergeJoin) {
 
-	} else if(parent->path->pathtype == T_MergeJoin) {
-
-	} else if(parent->path->pathtype == T_NestLoop) {
-
+	} else if(pwt->path->pathtype == T_NestLoop) {
+		pwt->path = (Path*)recreate_nlj_path(pwt);
 	}
-	*/
 }
 
 /**
@@ -199,6 +195,7 @@ static void propogate_up(PathWrapperTree* pwt) {
 
 static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 	char* selected;
+	Path* newpath;
 	PathWrapperTree* pwt = (PathWrapperTree*)data;
 
 	printf("btn_change_join_clicked CLICKED\n");
@@ -206,19 +203,21 @@ static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 
 	selected = gtk_combo_box_text_get_active_text (pwt->ddl);
 
+	pwt->path = (Path*)recreate_hashjoin_path(pwt);
 	if(strcmp(selected,DDL_NLJ_OPTION) == 0) {
-		NestPath* nestpath;
-		nestpath = create_nlj_path(pwt);
-		pwt->path = (Path*)nestpath;
-		pwt->cost_updated = true;
-		propogate_up(pwt->parent);
-		setup_grid(pwt->ui);
+		newpath = (Path*)recreate_nlj_path(pwt);
+	} else if(strcmp(selected,DDL_HASHJOIN_OPTION) == 0) {
+		newpath = (Path*)recreate_hashjoin_path(pwt);
 	} else {
 		printf("no value was selected\n");
 		fflush(stdout);
 		return;
 	}
 
+	pwt->path = newpath;
+	pwt->cost_updated = true;
+	propogate_up(pwt->parent);
+	setup_grid(pwt->ui);
 
 }
 

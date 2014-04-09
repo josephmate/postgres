@@ -24,6 +24,31 @@
 #include "ui/optimizer_ui.h"
 #include "ui/join_path_helper.h"
 
+
+/**
+ * This structure holds all the state related to the user
+ * creating his own path
+ */
+typedef struct CommonJoinStuff CommonJoinStuff;
+struct CommonJoinStuff {
+	PlannerInfo * plannerinfo;
+	JoinCostWorkspace workspace; // i don't think this is used
+	Relids		joinrelids;
+	JoinPath* joinpath;
+	JoinType jointype;
+	RelOptInfo *rel1;
+	RelOptInfo *rel2;
+	SpecialJoinInfo* sjinfo;
+	RelOptInfo *joinrel;
+	List	   *restrictlist;
+	Path* outer_path;
+	Path* inner_path;
+	//TODO: semi and anti joins
+	//TODO: see joinpath.c:add_paths_to_joinrel
+	SemiAntiJoinFactors semifactors;
+};
+
+
 static bool
 join_is_legal(
 		PlannerInfo *root,
@@ -35,75 +60,166 @@ join_is_legal(
 static SpecialJoinInfo* special_join_info(
 		PathWrapperTree* pwt
 		);
+static inline bool
+clause_sides_match_join(RestrictInfo *rinfo, RelOptInfo *outerrel,
+						RelOptInfo *innerrel);
+
+static void getCommonJoinStuff(CommonJoinStuff * jointstuff, PathWrapperTree* pwt) ;
 
 
-NestPath* create_nlj_path(PathWrapperTree* pwt) {
-	JoinCostWorkspace workspace; // i don't think this is used
-	//TODO: semi and anti joins
-	//TODO: see joinpath.c:add_paths_to_joinrel
-	SemiAntiJoinFactors semifactors;
-	PlannerInfo * root;
-	JoinPath* joinpath;
-	JoinType jointype;
-	SpecialJoinInfo* sjinfo;
-	RelOptInfo *joinrel;
+HashPath* recreate_hashjoin_path(PathWrapperTree* pwt)  {
+	CommonJoinStuff cjs;
+	Relids		required_outer;
+	List	   *hashclauses;
+	ListCell   *lc;
+	bool		isouterjoin;
+	Relids		extra_lateral_rels = NULL;
+
+	getCommonJoinStuff(&cjs, pwt);
+	isouterjoin = IS_OUTER_JOIN(cjs.jointype);
+
+
+	foreach(lc, cjs.plannerinfo->placeholder_list)
+	{
+		PlaceHolderInfo *phinfo = (PlaceHolderInfo *) lfirst(lc);
+
+		/* PHVs without lateral refs can be skipped over quickly */
+		if (phinfo->ph_lateral == NULL)
+			continue;
+		/* Is it due to be evaluated at this join, and not in either input? */
+		if (bms_is_subset(phinfo->ph_eval_at, cjs.joinrel->relids) &&
+			!bms_is_subset(phinfo->ph_eval_at, cjs.rel1->relids) &&
+			!bms_is_subset(phinfo->ph_eval_at, cjs.rel2->relids))
+		{
+			/* Yes, remember its lateral rels */
+			extra_lateral_rels = bms_add_members(extra_lateral_rels,
+												 phinfo->ph_lateral);
+		}
+	}
+
+	hashclauses = NIL;
+	foreach(lc, cjs.restrictlist)
+	{
+		RestrictInfo *restrictinfo = (RestrictInfo *) lfirst(lc);
+
+		/*
+		 * If processing an outer join, only use its own join clauses for
+		 * hashing.  For inner joins we need not be so picky.
+		 */
+		if (isouterjoin && restrictinfo->is_pushed_down)
+			continue;
+
+		if (!restrictinfo->can_join ||
+			restrictinfo->hashjoinoperator == InvalidOid)
+			continue;			/* not hashjoinable */
+
+		/*
+		 * Check if clause has the form "outer op inner" or "inner op outer".
+		 */
+		if (!clause_sides_match_join(restrictinfo, cjs.rel1, cjs.rel2))
+			continue;			/* no good for these input relations */
+
+		hashclauses = lappend(hashclauses, restrictinfo);
+	}
+
+
+	required_outer = calc_non_nestloop_required_outer(
+			cjs.outer_path,
+			cjs.inner_path
+			);
+
+	required_outer = bms_add_members(required_outer, extra_lateral_rels);
+
+	initial_cost_hashjoin(
+			cjs.plannerinfo,
+			&cjs.workspace,
+			cjs.jointype,
+			hashclauses,
+			cjs.outer_path,
+			cjs.inner_path,
+			cjs.sjinfo,
+			&cjs.semifactors);
+
+	return create_hashjoin_path(
+		cjs.plannerinfo,
+		cjs.joinrel,
+		cjs.jointype,
+		&cjs.workspace,
+		cjs.sjinfo,
+		&cjs.semifactors,
+		cjs.outer_path,
+		cjs.inner_path,
+		cjs.restrictlist,
+		required_outer,
+		hashclauses
+		);
+}
+
+NestPath* recreate_nlj_path(PathWrapperTree* pwt) {
+	CommonJoinStuff cjs;
 	NestPath* nextPath;
-	List	   *restrictlist;
-	Relids		joinrelids;
-	RelOptInfo *rel1;
-	RelOptInfo *rel2;
 	List	   *merge_pathkeys;
 	Relids		required_outer;
 
-
-
-
-	root = pwt->ui->plannerinfo;
-	joinrelids = pwt->path->parent->relids;
-	rel1 = pwt->left->path->parent;
-	rel2 = pwt->right->path->parent;
-	joinpath = (JoinPath*) pwt->path;
-	jointype = joinpath->jointype;
-
-	sjinfo = special_join_info(pwt);
+	getCommonJoinStuff(&cjs, pwt);
 
 	initial_cost_nestloop(
-			pwt->ui->plannerinfo,
-			&workspace,
-			jointype,
-			pwt->left->path,
-			pwt->right->path,
-			sjinfo,
-			&semifactors);
+			cjs.plannerinfo,
+			&cjs.workspace,
+			cjs.jointype,
+			cjs.outer_path,
+			cjs.inner_path,
+			cjs.sjinfo,
+			&cjs.semifactors);
 
 
-	joinrel = build_join_rel(root, joinrelids, rel1, rel2, sjinfo,
-							 &restrictlist);
-
-
-	merge_pathkeys = build_join_pathkeys(root, joinrel, jointype,
-			pwt->left->path->pathkeys);
+	merge_pathkeys = build_join_pathkeys(
+			cjs.plannerinfo,
+			cjs.joinrel,
+			cjs.jointype,
+			cjs.outer_path->pathkeys);
 
 
 	required_outer = calc_nestloop_required_outer(
-			pwt->left->path,
-			pwt->right->path);
+			cjs.outer_path,
+			cjs.inner_path);
 
 	nextPath = create_nestloop_path(
-			pwt->ui->plannerinfo,
-			pwt->path->parent,
-			joinpath->jointype,
-			&workspace,
-			sjinfo,
-			&semifactors,
-			pwt->left->path,
-			pwt->right->path,
-			restrictlist,
+			cjs.plannerinfo,
+			cjs.joinrel,
+			cjs.jointype,
+			&cjs.workspace,
+			cjs.sjinfo,
+			&cjs.semifactors,
+			cjs.outer_path,
+			cjs.inner_path,
+			cjs.restrictlist,
 			merge_pathkeys,
 			required_outer
 			);
 
 	return nextPath;
+}
+
+static void getCommonJoinStuff(CommonJoinStuff * cjs, PathWrapperTree* pwt) {
+	cjs->rel1 = pwt->left->path->parent;
+	cjs->rel2 = pwt->right->path->parent;
+	cjs->plannerinfo = pwt->ui->plannerinfo;
+	cjs->joinrelids = pwt->path->parent->relids;
+	cjs->joinpath = (JoinPath*) pwt->path;
+	cjs->jointype = cjs->joinpath->jointype;
+	cjs->outer_path = pwt->left->path;
+	cjs->inner_path = pwt->right->path;
+
+	cjs->sjinfo = special_join_info(pwt);
+
+	cjs->joinrel = build_join_rel(
+			cjs->plannerinfo,
+			cjs->joinrelids,
+			cjs->rel1,
+			cjs->rel2,
+			cjs->sjinfo,
+			&cjs->restrictlist);
 }
 
 static SpecialJoinInfo* special_join_info(
@@ -416,3 +532,34 @@ join_is_legal(
 	return true;
 }
 
+/* taken from
+ * joinpath.c:clause_sides_match_join
+ * clause_sides_match_join
+ *	  Determine whether a join clause is of the right form to use in this join.
+ *
+ * We already know that the clause is a binary opclause referencing only the
+ * rels in the current join.  The point here is to check whether it has the
+ * form "outerrel_expr op innerrel_expr" or "innerrel_expr op outerrel_expr",
+ * rather than mixing outer and inner vars on either side.	If it matches,
+ * we set the transient flag outer_is_left to identify which side is which.
+ */
+static inline bool
+clause_sides_match_join(RestrictInfo *rinfo, RelOptInfo *outerrel,
+						RelOptInfo *innerrel)
+{
+	if (bms_is_subset(rinfo->left_relids, outerrel->relids) &&
+		bms_is_subset(rinfo->right_relids, innerrel->relids))
+	{
+		/* lefthand side is outer */
+		rinfo->outer_is_left = true;
+		return true;
+	}
+	else if (bms_is_subset(rinfo->left_relids, innerrel->relids) &&
+			 bms_is_subset(rinfo->right_relids, outerrel->relids))
+	{
+		/* righthand side is outer */
+		rinfo->outer_is_left = false;
+		return true;
+	}
+	return false;				/* no good for these input relations */
+}
