@@ -1,3 +1,6 @@
+/*
+select 
+*/
 explain select 
   e.ename as "employee",
   d.dname as "in dept",

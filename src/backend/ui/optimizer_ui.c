@@ -168,6 +168,35 @@ static PathWrapperTree* constructPWT(UIState* ui, Path*root) {
 	return ret;
 }
 
+static void update_path(PathWrapperTree* pwt) {
+	if(pwt->path == NULL) {
+		return;
+	}
+	pwt->cost_updated = true;
+	pwt->path = (Path*)create_nlj_path(pwt);
+
+	//TODO: add other joins
+	/*
+	if(parent->path->pathtype == T_HashJoin) {
+
+	} else if(parent->path->pathtype == T_MergeJoin) {
+
+	} else if(parent->path->pathtype == T_NestLoop) {
+
+	}
+	*/
+}
+
+/**
+ * propogates the change upwards
+ */
+static void propogate_up(PathWrapperTree* pwt) {
+	if(pwt->type == PWT_JOIN) {
+		update_path(pwt);
+		propogate_up(pwt->parent);
+	}
+}
+
 static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 	char* selected;
 	PathWrapperTree* pwt = (PathWrapperTree*)data;
@@ -182,7 +211,7 @@ static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 		nestpath = create_nlj_path(pwt);
 		pwt->path = (Path*)nestpath;
 		pwt->cost_updated = true;
-		//propogate_up(pwt->parent);
+		propogate_up(pwt->parent);
 		setup_grid(pwt->ui);
 	} else {
 		printf("no value was selected\n");
@@ -449,4 +478,6 @@ void prompt_user_for_plan(PlannerInfo *root, Path **cheapest_path) {
 	// show UI, and wait for the user to close it
 	gtk_widget_show(GTK_WIDGET(window));
 	gtk_main();
+
+	*cheapest_path = state.pwt->right->path;
 }
