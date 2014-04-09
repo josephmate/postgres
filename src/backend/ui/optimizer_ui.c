@@ -8,9 +8,11 @@
 // standard libraries
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 // postgres libraries
 #include "postgres.h"
+#include "nodes/relation.h"
 #include "nodes/print.h"
 #include "miscadmin.h"
 #include "optimizer/cost.h"
@@ -27,6 +29,7 @@
 
 // headers I introduced:
 #include "ui/cstr_out.h"
+#include "ui/join_path_helper.h"
 
 // the header I'm working on
 #include "ui/optimizer_ui.h"
@@ -57,44 +60,50 @@
 #define PWT_LEAF 2
 #define PWT_UNKNOWN 3
 
-/**
- * Wraps a bath to allow of backwards navigation. All manipulations will
- * occur on the path wrapper tree. When ui completes, we unwrap the wrapping
- * and place it back into Path**cheapest_path
- */
-typedef struct PathWrapperTree PathWrapperTree;
-struct PathWrapperTree {
-	PathWrapperTree * parent;
-	PathWrapperTree * left;  // by convention we make this the outer
-	PathWrapperTree * right; // by convention we make this the inner
-	                         // by convention this is the only child of the root
-	int type; // one of PWT_*
-	Path * path;
-};
+static char * DDL_HASHJOIN_OPTION = "Hash Join";
+static char * DDL_MERGEJOIN_OPTION = "Merge Join";
+static char * DDL_NLJ_OPTION = "Nested Loop Join";
 
 
-/**
- * This structure holds all the state related to the user
- * creating his own path
- */
-struct UIState {
-	int height;
-	PlannerInfo * plannerinfo;
-	PathWrapperTree *pwt;
-};
-typedef struct UIState UIState;
+static bool isJoinPath(Path* path);
+static bool isLeafPath(Path* path);
+static PathWrapperTree* constructPWT_recurse(UIState* ui, Path*path, PathWrapperTree*parent) ;
+static PathWrapperTree* constructPWT(UIState* ui, Path*root) ;
+static void btn_change_join_clicked(GtkWidget* widget, gpointer data) ;
+static void btn_change_scan_clicked(GtkWidget* widget, gpointer data) ;
+static int delete_event_handler(GtkWidget* widget, GdkEvent* event, gpointer data) ;
+static void destroy(GtkWidget* widget, gpointer data) ;
+static int compute_height(PathWrapperTree* pwt) ;
+static GtkGrid * create_grid_from_path(
+    PathWrapperTree * pwt,
+    char * typeStr,
+    void (*onclick)(GtkWidget*, gpointer)
+    ) ;
+static void add_btn(
+    PathWrapperTree * pwt,
+    GtkGrid* grid,
+    void (*onclick)(GtkWidget*, gpointer)) ;
+static GtkWidget * create_join_widget_from_path(
+    PathWrapperTree * pwt,
+    char * typeStr,
+    void (*onclick)(GtkWidget*, gpointer)
+    ) ;
+static GtkWidget * create_leaf_widget_from_path(
+    PathWrapperTree * pwt,
+    char * typeStr,
+    void (*onclick)(GtkWidget*, gpointer)
+    ) ;
+static GtkWidget * create_hash_join_widget(PathWrapperTree* pwt) ;
+static GtkWidget * create_merge_join_widget(PathWrapperTree* pwt) ;
+static GtkWidget * create_nested_loop_widget(PathWrapperTree* pwt) ;
+static GtkWidget * create_seq_scan_widget(PathWrapperTree* pwt) ;
+static GtkWidget * create_idx_scan_widget(PathWrapperTree* pwt) ;
+static GtkWidget * make_join_node_widget(PathWrapperTree* pwt) ;
+static GtkWidget * make_leaf_node_widget(PathWrapperTree* pwt) ;
+static void setup_grid_recurse(PathWrapperTree* pwt, GtkGrid *grid, int r, int c, int height) ;
+static void setup_grid(UIState * state) ;
 
-/**
- * This structure holds the state directly related to each node.
- */
-struct NodeGridState {
-	UIState* state;
-	PathWrapperTree* pwt;
-	int row;
-	int col;
-	char * labelStr;
-};
-typedef struct GridState UIStGridStateate;
+
 
 static bool isJoinPath(Path* path) {
 	if(path == NULL) {
@@ -124,8 +133,9 @@ static bool isLeafPath(Path* path) {
 	}
 }
 
-static PathWrapperTree* constructPWT_recurse(Path*path, PathWrapperTree*parent) {
+static PathWrapperTree* constructPWT_recurse(UIState* ui, Path*path, PathWrapperTree*parent) {
 	PathWrapperTree* ret = malloc(sizeof(PathWrapperTree));
+	ret->ui = ui;
 	ret->left = NULL;
 	ret->right = NULL;
 	ret->parent = parent;
@@ -133,8 +143,8 @@ static PathWrapperTree* constructPWT_recurse(Path*path, PathWrapperTree*parent) 
 	if(isJoinPath(path)) {
 		JoinPath* joinpath = (JoinPath*)path;
 		ret->type = PWT_JOIN;
-		ret->left = constructPWT_recurse(joinpath->outerjoinpath, ret);
-		ret->right = constructPWT_recurse(joinpath->innerjoinpath, ret);
+		ret->left = constructPWT_recurse(ui, joinpath->outerjoinpath, ret);
+		ret->right = constructPWT_recurse(ui, joinpath->innerjoinpath, ret);
 	} else if(isLeafPath(path)){
 		ret->type = PWT_LEAF;
 	} else {
@@ -144,20 +154,44 @@ static PathWrapperTree* constructPWT_recurse(Path*path, PathWrapperTree*parent) 
 	return ret;
 }
 
-static PathWrapperTree* constructPWT(Path*root) {
+static PathWrapperTree* constructPWT(UIState* ui, Path*root) {
 	PathWrapperTree* ret = malloc(sizeof(PathWrapperTree));
 	ret->parent = NULL;
 	ret->path = NULL;
 	ret->left = NULL;
-	ret->right = constructPWT_recurse(root, ret);
+	ret->right = constructPWT_recurse(ui, root, ret);
 	ret->type = PWT_ROOT;
-
+	ret->ui = ui;
 	return ret;
 }
 
 
-static void btn_clicked(GtkWidget* widget, gpointer data) {
-	printf("CLICKED\n");
+static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
+	char* selected;
+	PathWrapperTree* pwt = (PathWrapperTree*)data;
+
+	printf("btn_change_join_clicked CLICKED\n");
+	fflush(stdout);
+
+	selected = gtk_combo_box_text_get_active_text (pwt->ddl);
+
+	if(strcmp(selected,DDL_NLJ_OPTION) == 0) {
+		NestPath* nestpath;
+		nestpath = create_nlj_path(pwt);
+		pwt->path = (Path*)nestpath;
+		setup_grid(pwt->ui);
+	} else {
+		printf("no value was selected\n");
+		fflush(stdout);
+		return;
+	}
+
+
+}
+
+static void btn_change_scan_clicked(GtkWidget* widget, gpointer data) {
+	//PathWrapperTree* pwt = (PathWrapperTree*)data;
+	printf("btn_change_scan_clicked CLICKED\n");
 	fflush(stdout);
 }
 
@@ -190,8 +224,7 @@ static int compute_height(PathWrapperTree* pwt) {
 #define CSTR_BUFF 2048
 
 static GtkGrid * create_grid_from_path(
-		UIState * state,
-		Path * seqscan,
+		PathWrapperTree * pwt,
 		char * typeStr,
 		void (*onclick)(GtkWidget*, gpointer)
 		) {
@@ -209,9 +242,9 @@ static GtkGrid * create_grid_from_path(
 	// info
 	pos = 0;
 	buff = malloc(sizeof(char)*CSTR_BUFF);
-	rel = seqscan->parent;
+	rel = pwt->path->parent;
 	pos += snprintf(buff+pos, CSTR_BUFF-pos, "<span size=\"x-small\">");
-	pos = cstr_rel(buff, pos, CSTR_BUFF-1, state->plannerinfo, rel);
+	pos = cstr_rel(buff, pos, CSTR_BUFF-1, pwt->ui->plannerinfo, rel);
 	pos += snprintf(buff+pos, CSTR_BUFF-pos, "</span>");
 	lblInfo = gtk_label_new( NULL );
 	gtk_label_set_markup(GTK_LABEL(lblInfo), buff);
@@ -227,29 +260,24 @@ static GtkGrid * create_grid_from_path(
 }
 
 static void add_btn(
+		PathWrapperTree * pwt,
 		GtkGrid* grid,
 		void (*onclick)(GtkWidget*, gpointer)) {
 	GtkWidget *btn;
-	btn = gtk_button_new_with_label("update");
-	g_signal_connect(G_OBJECT(btn), "clicked", G_CALLBACK(*onclick), NULL);
+	btn = gtk_button_new_with_label("change");
+	g_signal_connect(G_OBJECT(btn), "clicked", G_CALLBACK(*onclick), pwt);
 	gtk_grid_attach(grid, btn, 0,3,1,1);
 	gtk_widget_show(btn);
 }
 
-static char * DDL_HASHJOIN_OPTION = "Hash Join";
-static char * DDL_MERGEJOIN_OPTION = "Merge Join";
-static char * DDL_NESTEDLOOPJOIN_OPTION = "Nested Loop Join";
-
 static GtkWidget * create_join_widget_from_path(
-		UIState * state,
-		Path * seqscan,
+		PathWrapperTree * pwt,
 		char * typeStr,
 		void (*onclick)(GtkWidget*, gpointer)
 		) {
 	GtkComboBoxText * ddl;
 	GtkGrid* grid = create_grid_from_path(
-		state,
-		seqscan,
+		pwt,
 		typeStr,
 		onclick
 	);
@@ -257,11 +285,12 @@ static GtkWidget * create_join_widget_from_path(
 	ddl = (GtkComboBoxText*)gtk_combo_box_text_new();
 	gtk_combo_box_text_append_text(ddl, DDL_HASHJOIN_OPTION);
 	gtk_combo_box_text_append_text(ddl, DDL_MERGEJOIN_OPTION);
-	gtk_combo_box_text_append_text(ddl, DDL_NESTEDLOOPJOIN_OPTION);
+	gtk_combo_box_text_append_text(ddl, DDL_NLJ_OPTION);
 	gtk_grid_attach(grid, GTK_WIDGET(ddl), 0,2,1,1);
 	gtk_widget_show(GTK_WIDGET(ddl));
+	pwt->ddl = ddl;
 
-	add_btn(grid, onclick);
+	add_btn(pwt, grid, onclick);
 	return GTK_WIDGET(grid);
 }
 
@@ -270,15 +299,13 @@ static char * DDL_SEQSCAN_OPTION = "Sequence Scan";
 static char * DDL_IDXSCAN_OPTION = "Index Scan";
 
 static GtkWidget * create_leaf_widget_from_path(
-		UIState * state,
-		Path * seqscan,
+		PathWrapperTree * pwt,
 		char * typeStr,
 		void (*onclick)(GtkWidget*, gpointer)
 		) {
 	GtkComboBoxText * ddl;
 	GtkGrid* grid = create_grid_from_path(
-		state,
-		seqscan,
+		pwt,
 		typeStr,
 		onclick
 	);
@@ -288,122 +315,123 @@ static GtkWidget * create_leaf_widget_from_path(
 	gtk_combo_box_text_append_text(ddl, DDL_IDXSCAN_OPTION);
 	gtk_grid_attach(grid, GTK_WIDGET(ddl), 0,2,1,1);
 	gtk_widget_show(GTK_WIDGET(ddl));
+	pwt->ddl = ddl;
 
-	add_btn(grid, onclick);
+	add_btn(pwt, grid, onclick);
 	return GTK_WIDGET(grid);
 }
 
 
-static GtkWidget * create_hash_join_widget(UIState * state, PathWrapperTree* pwt) {
+static GtkWidget * create_hash_join_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_join_widget_from_path(state, pwt->path, "<span size=\"x-small\">Hash Join</span>", &btn_clicked)
+			create_join_widget_from_path(pwt, "<span size=\"x-small\">Hash Join</span>", &btn_change_join_clicked)
 		);
 }
 
-static GtkWidget * create_merge_join_widget(UIState * state, PathWrapperTree* pwt) {
+static GtkWidget * create_merge_join_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_join_widget_from_path(state, pwt->path, "<span size=\"x-small\">Merge Join</span>", &btn_clicked)
+			create_join_widget_from_path(pwt, "<span size=\"x-small\">Merge Join</span>", &btn_change_join_clicked)
 		);
 }
 
-static GtkWidget * create_nested_loop_widget(UIState * state, PathWrapperTree* pwt) {
+static GtkWidget * create_nested_loop_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_join_widget_from_path(state, pwt->path, "<span size=\"x-small\">Nested Loop</span>", &btn_clicked)
+			create_join_widget_from_path(pwt, "<span size=\"x-small\">Nested Loop</span>", &btn_change_join_clicked)
 		);
 }
 
-static GtkWidget * create_seq_scan_widget(UIState * state, PathWrapperTree* pwt) {
+static GtkWidget * create_seq_scan_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_leaf_widget_from_path(state, pwt->path, "<span size=\"x-small\">Sequence Scan</span>", &btn_clicked)
+			create_leaf_widget_from_path(pwt, "<span size=\"x-small\">Sequence Scan</span>", &btn_change_scan_clicked)
 		);
 }
 
-static GtkWidget * create_idx_scan_widget(UIState * state, PathWrapperTree* pwt) {
+static GtkWidget * create_idx_scan_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_leaf_widget_from_path(state, pwt->path, "<span size=\"x-small\">Index Scan</span>", &btn_clicked)
+			create_leaf_widget_from_path(pwt, "<span size=\"x-small\">Index Scan</span>", &btn_change_scan_clicked)
 		);
 }
 
-static GtkWidget * make_join_node_widget(UIState* state, PathWrapperTree* pwt) {
+static GtkWidget * make_join_node_widget(PathWrapperTree* pwt) {
 	switch(pwt->path->pathtype){
 		case T_HashJoin:
-			return create_hash_join_widget(state, pwt);
+			return create_hash_join_widget(pwt);
 		case T_MergeJoin:
-			return create_merge_join_widget(state, pwt);
+			return create_merge_join_widget(pwt);
 		case T_NestLoop:
-			return create_nested_loop_widget(state, pwt);
+			return create_nested_loop_widget(pwt);
 		default:
 			Assert(false);
 			return NULL;
 	}
 }
 
-static GtkWidget * make_leaf_node_widget(UIState* state, PathWrapperTree* pwt) {
+static GtkWidget * make_leaf_node_widget(PathWrapperTree* pwt) {
 	switch(pwt->path->pathtype){
 			case T_SeqScan:
-				return create_seq_scan_widget(state, pwt);
+				return create_seq_scan_widget(pwt);
 			case T_IndexOnlyScan :
 			case T_IndexScan :
-				return create_idx_scan_widget(state, pwt);
+				return create_idx_scan_widget(pwt);
 			default:
 				Assert(false);
 				return NULL;
 	}
 }
 
-static void setup_grid_recurse(UIState * state, PathWrapperTree* pwt, GtkGrid *grid, int r, int c, int height) {
+static void setup_grid_recurse(PathWrapperTree* pwt, GtkGrid *grid, int r, int c, int height) {
 	if(pwt->type == PWT_JOIN) {
 		int branchDistance;
 		branchDistance = pow(2, height-2);
-		gtk_grid_attach(grid, make_join_node_widget(state,pwt),c,r,1,1);
-		setup_grid_recurse(state, pwt->left, grid, r+1, c-branchDistance, height-1);
-		setup_grid_recurse(state, pwt->right, grid, r+1, c+branchDistance, height-1);
+		gtk_grid_attach(grid, make_join_node_widget(pwt),c,r,1,1);
+		setup_grid_recurse(pwt->left, grid, r+1, c-branchDistance, height-1);
+		setup_grid_recurse(pwt->right, grid, r+1, c+branchDistance, height-1);
 	} else if(pwt->type == PWT_LEAF) {
-		gtk_grid_attach(grid, make_leaf_node_widget(state,pwt), c,r,1,1);
+		gtk_grid_attach(grid, make_leaf_node_widget(pwt), c,r,1,1);
 	}
 }
 
-static void setup_grid(GtkWidget *window, UIState * state) {
-	GtkGrid *grid;
-	grid = (GtkGrid*)gtk_grid_new();
-
+static void setup_grid(UIState * state) {
+	if(state->scrolledwindow != NULL) {
+		gtk_container_remove(GTK_CONTAINER(state->window), GTK_WIDGET(state->scrolledwindow));
+	}
+	state->scrolledwindow = gtk_scrolled_window_new(NULL, NULL);
+	state->grid = (GtkGrid*)gtk_grid_new();
 
 	setup_grid_recurse(
-			state,
 			state->pwt->right,
-			grid,
+			state->grid,
 			0,
 			pow(2, state->height) -1,
 			state->height);
-
-	gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(grid));
-	gtk_widget_show(GTK_WIDGET(grid));
-
+	gtk_container_add(GTK_CONTAINER(state->scrolledwindow), GTK_WIDGET(state->grid));
+	gtk_widget_show(GTK_WIDGET(state->grid));
+	gtk_container_add(GTK_CONTAINER(state->window), GTK_WIDGET(state->scrolledwindow));
+	gtk_widget_show(GTK_WIDGET(state->scrolledwindow));
 }
 
 void prompt_user_for_plan(PlannerInfo *root, Path **cheapest_path) {
 	UIState state;
 	GtkWindow *window;
-	GtkWidget *scrolledWindow;
 
 	// setup GUI stuff
 	gtk_init(NULL, NULL);
 	window = (GtkWindow*)gtk_window_new(GTK_WINDOW_TOPLEVEL);
-	scrolledWindow = gtk_scrolled_window_new(NULL, NULL);
 	g_signal_connect(G_OBJECT(window), "delete_event", G_CALLBACK(delete_event_handler), NULL);
 	g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(destroy), NULL);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 10);
-	gtk_window_set_default_size(window, 1500, 900 );
+	gtk_window_set_default_size(window, 1500, 900);
 
 	// setup the grid and ui state
 	state.plannerinfo = root;
-	state.pwt = constructPWT(*cheapest_path);
+	state.pwt = constructPWT(&state, *cheapest_path);
 	state.height = compute_height(state.pwt);
-	setup_grid(scrolledWindow, &state);
+	state.grid = NULL;
+	state.scrolledwindow = NULL;
+	state.window = window;
+	setup_grid(&state);
 
-	gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(scrolledWindow));
 	// show UI, and wait for the user to close it
-	gtk_widget_show(scrolledWindow);
 	gtk_widget_show(GTK_WIDGET(window));
 	gtk_main();
 }
