@@ -18,6 +18,7 @@
 #include "nodes/params.h"
 #include "nodes/parsenodes.h"
 #include "storage/block.h"
+#include "util/hsearch.h"
 
 
 /*
@@ -247,6 +248,33 @@ typedef struct PlannerInfo
 
 	/* This will be in a saner place in 9.4: */
 	Relids		nullable_baserels;
+
+	/**
+	 * A hashtable of
+	 * bitmap -> double
+	 *
+	 * key: - bitmap of relids
+	 *      - the list of relids represent the combination of base table/relations
+	 *        that have that estimate
+	 *      - So a base relation with an overriden estimate would have an entry
+	 *        for a bitmap that only has the relid of that table
+	 *      - For a joined relation, the entry is the bitmap containing the relid
+	 *        of all the base relations recursively included under that join
+	 * value: it's overriden estimated number of rows returned
+	 *
+	 * This is use later on by the functions when the joined or base relations
+	 * estimate has been overriden:
+	 * - costsize.c:get_parameterized_baserel_size
+	 * - costsize.c:get_parameterized_joinrel_size
+	 *
+	 * The motivation is sometimes the selectivity estimates that the optimizer provides
+	 * is incorrect because the assumptions it makes does not apply in all scenarios.
+	 *
+	 * Overall, this decouples the selectivity estimation from the query planner, allowing
+	 * plugs in like COORDS or manually entered estimate values from a user.
+	 */
+	HTAB* overridenEstimates;
+
 } PlannerInfo;
 
 
