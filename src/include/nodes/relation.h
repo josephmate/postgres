@@ -105,6 +105,11 @@ typedef struct PlannerGlobal
 #define planner_subplan_get_plan(root, subplan) \
 	((Plan *) list_nth((root)->glob->subplans, (subplan)->plan_id - 1))
 
+typedef struct OverriddenEstimatesEntry
+{
+	Relids relids;	/* hash key --- MUST BE FIRST */
+	double estimate;
+} OverriddenEstimatesEntry;
 
 /*----------
  * PlannerInfo
@@ -264,7 +269,7 @@ typedef struct PlannerInfo
 	 *
 	 * This is use later on by the functions when the joined or base relations
 	 * estimate has been overriden:
-	 * - costsize.c:get_parameterized_baserel_size
+	 * - relnode.c:get_baserel_parampathinfo
 	 * - costsize.c:get_parameterized_joinrel_size
 	 *
 	 * The motivation is sometimes the selectivity estimates that the optimizer provides

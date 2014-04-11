@@ -167,6 +167,37 @@ clamp_row_est(double nrows)
 }
 
 
+static void getEstimatedRows(
+		Path *path,
+		PlannerInfo *root,
+		RelOptInfo *baserel,
+		ParamPathInfo *param_info) {
+	bool costOverridden;
+	/**
+	 * If the estimate has been overridden, return it
+	 */
+	if(root->overriddenEstimates != NULL) {
+		OverriddenEstimatesEntry * entry;
+		entry = (OverriddenEstimatesEntry *) hash_search(
+				root->overriddenEstimates,
+				&(baserel->relids),
+				HASH_FIND, NULL);
+		if(entry != NULL) {
+			costOverridden = true;
+			printf("overridden to:       %ld         %.2f\n", (long)baserel, entry->estimate);
+			path->rows = entry->estimate;
+		}
+	}
+	/* Mark the path with the correct row estimate */
+	if(!costOverridden) {
+		if (param_info) {
+			path->rows = param_info->ppi_rows;
+		} else {
+			path->rows = baserel->rows;
+		}
+	}
+}
+
 /*
  * cost_seqscan
  *	  Determines and returns the cost of scanning a relation sequentially.
@@ -183,16 +214,12 @@ cost_seqscan(Path *path, PlannerInfo *root,
 	double		spc_seq_page_cost;
 	QualCost	qpqual_cost;
 	Cost		cpu_per_tuple;
-
 	/* Should only be applied to base relations */
 	Assert(baserel->relid > 0);
 	Assert(baserel->rtekind == RTE_RELATION);
 
-	/* Mark the path with the correct row estimate */
-	if (param_info)
-		path->rows = param_info->ppi_rows;
-	else
-		path->rows = baserel->rows;
+	getEstimatedRows(path,root,baserel, param_info);
+
 
 	if (!enable_seqscan)
 		startup_cost += disable_cost;
@@ -258,6 +285,7 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	Cost		cpu_per_tuple;
 	double		tuples_fetched;
 	double		pages_fetched;
+	bool		costOverridden;
 
 	/* Should only be applied to base relations */
 	Assert(IsA(baserel, RelOptInfo) &&
@@ -265,17 +293,43 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	Assert(baserel->relid > 0);
 	Assert(baserel->rtekind == RTE_RELATION);
 
+
+	costOverridden = false;
+
+	/**
+	 * If the estimate has been overridden, return it
+	 */
+	if(root->overriddenEstimates != NULL) {
+		OverriddenEstimatesEntry * entry;
+		entry = (OverriddenEstimatesEntry *) hash_search(
+				root->overriddenEstimates,
+				&(baserel->relids),
+				HASH_FIND, NULL);
+		if(entry != NULL) {
+			costOverridden = true;
+			printf("overridden to:       %ld         %.2f\n", (long)baserel, entry->estimate);
+			path->path.rows = entry->estimate;
+		}
+	}
 	/* Mark the path with the correct row estimate */
+	if(!costOverridden) {
+		if (path->path.param_info)
+		{
+			path->path.rows = path->path.param_info->ppi_rows;
+		}
+		else
+		{
+			path->path.rows = baserel->rows;
+		}
+	}
 	if (path->path.param_info)
 	{
-		path->path.rows = path->path.param_info->ppi_rows;
 		/* also get the set of clauses that should be enforced by the scan */
 		allclauses = list_concat(list_copy(path->path.param_info->ppi_clauses),
 								 baserel->baserestrictinfo);
 	}
 	else
 	{
-		path->path.rows = baserel->rows;
 		/* allclauses should just be the rel's restriction clauses */
 		allclauses = baserel->baserestrictinfo;
 	}
@@ -632,11 +686,8 @@ cost_bitmap_heap_scan(Path *path, PlannerInfo *root, RelOptInfo *baserel,
 	Assert(baserel->relid > 0);
 	Assert(baserel->rtekind == RTE_RELATION);
 
-	/* Mark the path with the correct row estimate */
-	if (param_info)
-		path->rows = param_info->ppi_rows;
-	else
-		path->rows = baserel->rows;
+
+	getEstimatedRows(path,root,baserel, param_info);
 
 	if (!enable_bitmapscan)
 		startup_cost += disable_cost;
@@ -882,11 +933,8 @@ cost_tidscan(Path *path, PlannerInfo *root,
 	Assert(baserel->relid > 0);
 	Assert(baserel->rtekind == RTE_RELATION);
 
-	/* Mark the path with the correct row estimate */
-	if (param_info)
-		path->rows = param_info->ppi_rows;
-	else
-		path->rows = baserel->rows;
+
+	getEstimatedRows(path,root,baserel, param_info);
 
 	/* Count how many tuples we expect to retrieve */
 	ntuples = 0;
@@ -976,11 +1024,8 @@ cost_subqueryscan(Path *path, PlannerInfo *root,
 	Assert(baserel->relid > 0);
 	Assert(baserel->rtekind == RTE_SUBQUERY);
 
-	/* Mark the path with the correct row estimate */
-	if (param_info)
-		path->rows = param_info->ppi_rows;
-	else
-		path->rows = baserel->rows;
+
+	getEstimatedRows(path,root,baserel, param_info);
 
 	/*
 	 * Cost of path is cost of evaluating the subplan, plus cost of evaluating
@@ -1023,11 +1068,8 @@ cost_functionscan(Path *path, PlannerInfo *root,
 	rte = planner_rt_fetch(baserel->relid, root);
 	Assert(rte->rtekind == RTE_FUNCTION);
 
-	/* Mark the path with the correct row estimate */
-	if (param_info)
-		path->rows = param_info->ppi_rows;
-	else
-		path->rows = baserel->rows;
+
+	getEstimatedRows(path,root,baserel, param_info);
 
 	/*
 	 * Estimate costs of executing the function expression.
@@ -1077,11 +1119,8 @@ cost_valuesscan(Path *path, PlannerInfo *root,
 	Assert(baserel->relid > 0);
 	Assert(baserel->rtekind == RTE_VALUES);
 
-	/* Mark the path with the correct row estimate */
-	if (param_info)
-		path->rows = param_info->ppi_rows;
-	else
-		path->rows = baserel->rows;
+
+	getEstimatedRows(path,root,baserel, param_info);
 
 	/*
 	 * For now, estimate list evaluation cost at one operator eval per list
@@ -1123,11 +1162,8 @@ cost_ctescan(Path *path, PlannerInfo *root,
 	Assert(baserel->relid > 0);
 	Assert(baserel->rtekind == RTE_CTE);
 
-	/* Mark the path with the correct row estimate */
-	if (param_info)
-		path->rows = param_info->ppi_rows;
-	else
-		path->rows = baserel->rows;
+
+	getEstimatedRows(path,root,baserel, param_info);
 
 	/* Charge one CPU tuple cost per row for tuplestore manipulation */
 	cpu_per_tuple = cpu_tuple_cost;
@@ -3478,20 +3514,6 @@ get_parameterized_baserel_size(PlannerInfo *root, RelOptInfo *rel,
 	List	   *allclauses;
 	double		nrows;
 
-	/**
-	 * If the estimate has been overridden, return it
-	 */
-	if(root->overriddenEstimates != NULL) {
-		double * rowsPtr;
-		rowsPtr = (double *) hash_search(
-				root->overriddenEstimates,
-				&(rel->relids),
-				HASH_FIND, NULL);
-		if(rowsPtr != NULL) {
-			return *rowsPtr;
-		}
-	}
-
 	/*
 	 * Estimate the number of rows returned by the parameterized scan, knowing
 	 * that it will apply all the extra join clauses as well as the rel's own
@@ -3510,6 +3532,7 @@ get_parameterized_baserel_size(PlannerInfo *root, RelOptInfo *rel,
 	/* For safety, make sure result is not more than the base estimate */
 	if (nrows > rel->rows)
 		nrows = rel->rows;
+
 	return nrows;
 }
 
@@ -3542,6 +3565,8 @@ set_joinrel_size_estimates(PlannerInfo *root, RelOptInfo *rel,
 						   SpecialJoinInfo *sjinfo,
 						   List *restrictlist)
 {
+	printf("outer estimate:      %ld         %.2f\n", (long)outer_rel, outer_rel->rows);
+	printf("inner estimate:      %ld         %.2f\n", (long)inner_rel, inner_rel->rows);
 	rel->rows = calc_joinrel_size_estimate(root,
 										   outer_rel->rows,
 										   inner_rel->rows,

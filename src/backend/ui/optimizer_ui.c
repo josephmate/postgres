@@ -227,21 +227,72 @@ static void btn_change_scan_clicked(GtkWidget* widget, gpointer data) {
 	fflush(stdout);
 }
 
+typedef struct JoinHashEntry
+{
+	Relids		join_relids;	/* hash key --- MUST BE FIRST */
+	RelOptInfo *join_rel;
+} JoinHashEntry;
+/*
+ * build_join_rel_hash
+ *	  Construct the auxiliary hash table for join relations.
+ */
+static void
+build_join_rel_hash(PlannerInfo *root)
+{
+	HTAB	   *hashtab;
+	HASHCTL		hash_ctl;
+	ListCell   *l;
+
+	/* Create the hash table */
+	MemSet(&hash_ctl, 0, sizeof(hash_ctl));
+	hash_ctl.keysize = sizeof(Relids);
+	hash_ctl.entrysize = sizeof(JoinHashEntry);
+	hash_ctl.hash = bitmap_hash;
+	hash_ctl.match = bitmap_match;
+	hash_ctl.hcxt = CurrentMemoryContext;
+	hashtab = hash_create("JoinRelHashTable",
+						  256L,
+						  &hash_ctl,
+					HASH_ELEM | HASH_FUNCTION | HASH_COMPARE | HASH_CONTEXT);
+
+	/* Insert all the already-existing joinrels */
+	foreach(l, root->join_rel_list)
+	{
+		RelOptInfo *rel = (RelOptInfo *) lfirst(l);
+		JoinHashEntry *hentry;
+		bool		found;
+
+		hentry = (JoinHashEntry *) hash_search(hashtab,
+											   &(rel->relids),
+											   HASH_ENTER,
+											   &found);
+		Assert(!found);
+		hentry->join_rel = rel;
+	}
+
+	root->join_rel_hash = hashtab;
+}
+
 static void btn_change_estimate_clicked(GtkWidget* widget, gpointer data) {
 	PathWrapperTree* pwt;
 	UIState* ui;
-	double* hentry;
+	OverriddenEstimatesEntry * hentry;
 	printf("btn_change_estimate_clicked\n");
 	fflush(stdout);
 
+
 	pwt = (PathWrapperTree*)data;
 	ui = pwt->ui;
-	hentry = (double *) hash_search(
+	hentry = (OverriddenEstimatesEntry*) hash_search(
 		ui->plannerinfo->overriddenEstimates,
 		&(pwt->path->parent->relids),
 		HASH_ENTER,
 		NULL);
-	*hentry = gtk_spin_button_get_value(pwt->spnEst);
+	hentry->estimate = gtk_spin_button_get_value(pwt->spnEst);
+	pwt->path->parent->rows = hentry->estimate;
+
+	// clear the cached join rels
+	build_join_rel_hash(ui->plannerinfo);
 
 	query_planner_ui(
 		ui->plannerinfo,

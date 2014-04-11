@@ -401,6 +401,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* Now find the cheapest of the paths for this rel */
 	set_cheapest(rel);
+
+
 }
 
 /*
