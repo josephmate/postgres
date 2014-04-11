@@ -202,7 +202,6 @@ static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 	fflush(stdout);
 
 	selected = gtk_combo_box_text_get_active_text (pwt->ddl);
-	pwt->path = (Path*)recreate_hashjoin_path(pwt);
 	if(strcmp(selected,DDL_NLJ_OPTION) == 0) {
 		newpath = (Path*)recreate_nlj_path(pwt);
 	} else if(strcmp(selected,DDL_HASHJOIN_OPTION) == 0) {
@@ -509,8 +508,6 @@ static void prompt_user_for_plan_inner(Path **cheapest_path, UIState * state) {
 	// setup the grid and ui state
 	state->pwt = constructPWT(state, *cheapest_path);
 	state->height = compute_height(state->pwt);
-	state->grid = NULL;
-	state->scrolledwindow = NULL;
 	setup_grid(state);
 }
 
@@ -564,6 +561,8 @@ void prompt_user_for_plan(
 	state.cheapest_path = cheapest_path;
 	state.sorted_path = sorted_path;
 	state.num_groups = num_groups;
+	state.grid = NULL;
+	state.scrolledwindow = NULL;
 	prompt_user_for_plan_inner(cheapest_path,&state);
 
 	// show UI, and wait for the user to close it
