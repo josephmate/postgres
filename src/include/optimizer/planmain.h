@@ -32,6 +32,14 @@ extern void query_planner(PlannerInfo *root, List *tlist,
 			  query_pathkeys_callback qp_callback, void *qp_extra,
 			  Path **cheapest_path, Path **sorted_path,
 			  double *num_groups);
+/*
+ * prototypes for plan/planmain.c
+ */
+extern void query_planner_ui(PlannerInfo *root, List *tlist,
+			  double tuple_fraction, double limit_tuples,
+			  query_pathkeys_callback qp_callback, void *qp_extra,
+			  Path **cheapest_path, Path **sorted_path,
+			  double *num_groups, bool popupui);
 
 /*
  * prototypes for plan/planagg.c

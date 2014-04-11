@@ -8,7 +8,7 @@
 #ifndef JOIN_PATH_HELPER_H_
 #define JOIN_PATH_HELPER_H_
 
-#include "ui/optimizer_ui.h"
+#include "ui/optimizer_ui_structs.h"
 
 MergePath* recreate_mergejoin_path(PathWrapperTree* pwt) ;
 HashPath* recreate_hashjoin_path(PathWrapperTree* pwt) ;

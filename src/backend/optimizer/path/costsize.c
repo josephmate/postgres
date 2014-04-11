@@ -3478,6 +3478,20 @@ get_parameterized_baserel_size(PlannerInfo *root, RelOptInfo *rel,
 	List	   *allclauses;
 	double		nrows;
 
+	/**
+	 * If the estimate has been overridden, return it
+	 */
+	if(root->overriddenEstimates != NULL) {
+		double * rowsPtr;
+		rowsPtr = (double *) hash_search(
+				root->overriddenEstimates,
+				&(rel->relids),
+				HASH_FIND, NULL);
+		if(rowsPtr != NULL) {
+			return *rowsPtr;
+		}
+	}
+
 	/*
 	 * Estimate the number of rows returned by the parameterized scan, knowing
 	 * that it will apply all the extra join clauses as well as the rel's own
@@ -3558,6 +3572,20 @@ get_parameterized_joinrel_size(PlannerInfo *root, RelOptInfo *rel,
 							   List *restrict_clauses)
 {
 	double		nrows;
+
+	/**
+	 * If the estimate has been overridden, return it
+	 */
+	if(root->overriddenEstimates != NULL) {
+		double * rowsPtr;
+		rowsPtr = (double *) hash_search(
+				root->overriddenEstimates,
+				(void *) rel->relids,
+				HASH_FIND, NULL);
+		if(rowsPtr != NULL) {
+			return *rowsPtr;
+		}
+	}
 
 	/*
 	 * Estimate the number of rows returned by the parameterized join as the

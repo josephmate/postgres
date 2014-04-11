@@ -18,7 +18,7 @@
 #include "nodes/params.h"
 #include "nodes/parsenodes.h"
 #include "storage/block.h"
-#include "util/hsearch.h"
+#include "utils/hsearch.h"
 
 
 /*
@@ -260,7 +260,7 @@ typedef struct PlannerInfo
 	 *        for a bitmap that only has the relid of that table
 	 *      - For a joined relation, the entry is the bitmap containing the relid
 	 *        of all the base relations recursively included under that join
-	 * value: it's overriden estimated number of rows returned
+	 * value: it's overriden estimated number of rows returned by that combination of relids
 	 *
 	 * This is use later on by the functions when the joined or base relations
 	 * estimate has been overriden:
@@ -271,9 +271,11 @@ typedef struct PlannerInfo
 	 * is incorrect because the assumptions it makes does not apply in all scenarios.
 	 *
 	 * Overall, this decouples the selectivity estimation from the query planner, allowing
-	 * plugs in like COORDS or manually entered estimate values from a user.
+	 * plugs in like:
+	 * - CORDS: Automatic Discovery of Correlations and Soft Functional Dependencies
+	 * - manually entered estimate values from a user.
 	 */
-	HTAB* overridenEstimates;
+	HTAB* overriddenEstimates;
 
 } PlannerInfo;
 

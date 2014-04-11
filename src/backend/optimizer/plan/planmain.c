@@ -79,11 +79,11 @@
  * whether a bounded sort can be used at runtime.
  */
 void
-query_planner(PlannerInfo *root, List *tlist,
+query_planner_ui(PlannerInfo *root, List *tlist,
 			  double tuple_fraction, double limit_tuples,
 			  query_pathkeys_callback qp_callback, void *qp_extra,
 			  Path **cheapest_path, Path **sorted_path,
-			  double *num_groups)
+			  double *num_groups, bool popupui)
 {
 	Query	   *parse = root->parse;
 	List	   *joinlist;
@@ -420,8 +420,40 @@ query_planner(PlannerInfo *root, List *tlist,
 		}
 	}
 
-	prompt_user_for_plan(root, &cheapestpath);
+	if(popupui) {
+		prompt_user_for_plan(
+				root,
+				tlist,
+				tuple_fraction,
+				limit_tuples,
+				qp_callback,
+				qp_extra,
+				&cheapestpath,
+				&sortedpath,
+				num_groups
+				);
+	}
 
 	*cheapest_path = cheapestpath;
 	*sorted_path = sortedpath;
+}
+
+void
+query_planner(PlannerInfo *root, List *tlist,
+			  double tuple_fraction, double limit_tuples,
+			  query_pathkeys_callback qp_callback, void *qp_extra,
+			  Path **cheapest_path, Path **sorted_path,
+			  double *num_groups)
+{
+	query_planner_ui(
+			root,
+			tlist,
+			tuple_fraction,
+			limit_tuples,
+			qp_callback,
+			qp_extra,
+			cheapest_path,
+			sorted_path,
+			num_groups,
+			true);
 }

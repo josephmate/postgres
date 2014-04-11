@@ -23,6 +23,7 @@
 #include "optimizer/tlist.h"
 #include "utils/selfuncs.h"
 #include "nodes/pg_list.h"
+#include "utils/hsearch.h"
 
 // GUI libraries
 #include <gtk/gtk.h>
@@ -33,6 +34,7 @@
 
 // the header I'm working on
 #include "ui/optimizer_ui.h"
+#include "ui/optimizer_ui_structs.h"
 
 /**
  * References:
@@ -60,10 +62,12 @@
 #define PWT_LEAF 2
 #define PWT_UNKNOWN 3
 
-static char * DDL_HASHJOIN_OPTION = "Hash Join";
-static char * DDL_MERGEJOIN_OPTION = "Merge Join";
-static char * DDL_NLJ_OPTION = "Nested Loop Join";
+static const char * DDL_HASHJOIN_OPTION = "Hash Join";
+static const char * DDL_MERGEJOIN_OPTION = "Merge Join";
+static const char * DDL_NLJ_OPTION = "Nested Loop Join";
 
+static const char * DDL_SEQSCAN_OPTION = "Sequence Scan";
+static const char * DDL_IDXSCAN_OPTION = "Index Scan";
 
 static bool isJoinPath(Path* path);
 static bool isLeafPath(Path* path);
@@ -71,27 +75,23 @@ static PathWrapperTree* constructPWT_recurse(UIState* ui, Path*path, PathWrapper
 static PathWrapperTree* constructPWT(UIState* ui, Path*root) ;
 static void btn_change_join_clicked(GtkWidget* widget, gpointer data) ;
 static void btn_change_scan_clicked(GtkWidget* widget, gpointer data) ;
+static void btn_change_estimate_clicked(GtkWidget* widget, gpointer data) ;
 static int delete_event_handler(GtkWidget* widget, GdkEvent* event, gpointer data) ;
 static void destroy(GtkWidget* widget, gpointer data) ;
 static int compute_height(PathWrapperTree* pwt) ;
 static GtkGrid * create_grid_from_path(
-    PathWrapperTree * pwt,
-    char * typeStr,
-    void (*onclick)(GtkWidget*, gpointer)
+		PathWrapperTree * pwt,
+		char * typeStr,
+		GtkComboBoxText * ddl,
+		void (*onclick)(GtkWidget*, gpointer)
     ) ;
-static void add_btn(
-    PathWrapperTree * pwt,
-    GtkGrid* grid,
-    void (*onclick)(GtkWidget*, gpointer)) ;
 static GtkWidget * create_join_widget_from_path(
     PathWrapperTree * pwt,
-    char * typeStr,
-    void (*onclick)(GtkWidget*, gpointer)
+    char * typeStr
     ) ;
 static GtkWidget * create_leaf_widget_from_path(
     PathWrapperTree * pwt,
-    char * typeStr,
-    void (*onclick)(GtkWidget*, gpointer)
+    char * typeStr
     ) ;
 static GtkWidget * create_hash_join_widget(PathWrapperTree* pwt) ;
 static GtkWidget * create_merge_join_widget(PathWrapperTree* pwt) ;
@@ -102,7 +102,7 @@ static GtkWidget * make_join_node_widget(PathWrapperTree* pwt) ;
 static GtkWidget * make_leaf_node_widget(PathWrapperTree* pwt) ;
 static void setup_grid_recurse(PathWrapperTree* pwt, GtkGrid *grid, int r, int c, int height) ;
 static void setup_grid(UIState * state) ;
-
+static void prompt_user_for_plan_inner(Path **cheapest_path, UIState * state);
 
 
 static bool isJoinPath(Path* path) {
@@ -198,7 +198,7 @@ static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 	Path* newpath;
 	PathWrapperTree* pwt = (PathWrapperTree*)data;
 
-	printf("btn_change_join_clicked CLICKED\n");
+	printf("btn_change_join_clicked\n");
 	fflush(stdout);
 
 	selected = gtk_combo_box_text_get_active_text (pwt->ddl);
@@ -224,8 +224,40 @@ static void btn_change_join_clicked(GtkWidget* widget, gpointer data) {
 
 static void btn_change_scan_clicked(GtkWidget* widget, gpointer data) {
 	//PathWrapperTree* pwt = (PathWrapperTree*)data;
-	printf("btn_change_scan_clicked CLICKED\n");
+	printf("btn_change_scan_clicked\n");
 	fflush(stdout);
+}
+
+static void btn_change_estimate_clicked(GtkWidget* widget, gpointer data) {
+	PathWrapperTree* pwt;
+	UIState* ui;
+	double* hentry;
+	printf("btn_change_estimate_clicked\n");
+	fflush(stdout);
+
+	pwt = (PathWrapperTree*)data;
+	ui = pwt->ui;
+	hentry = (double *) hash_search(
+		ui->plannerinfo->overriddenEstimates,
+		&(pwt->path->parent->relids),
+		HASH_ENTER,
+		NULL);
+	*hentry = gtk_spin_button_get_value(pwt->spnEst);
+
+	query_planner_ui(
+		ui->plannerinfo,
+		ui->tlist,
+		ui->tuple_fraction,
+		ui->limit_tuples,
+		ui->qp_callback,
+		ui->qp_extra,
+		ui->cheapest_path,
+		ui->sorted_path,
+		ui->num_groups,
+		false
+		);
+
+	prompt_user_for_plan_inner(ui->cheapest_path, ui);
 }
 
 static int delete_event_handler(GtkWidget* widget, GdkEvent* event, gpointer data) {
@@ -259,140 +291,159 @@ static int compute_height(PathWrapperTree* pwt) {
 static GtkGrid * create_grid_from_path(
 		PathWrapperTree * pwt,
 		char * typeStr,
+		GtkComboBoxText * ddl,
 		void (*onclick)(GtkWidget*, gpointer)
 		) {
 	GtkGrid *grid;
 	GtkWidget *lbl;
+	GtkSpinButton *spnEst;
+	GtkWidget *estBtn;
 	GtkWidget *lblInfo;
+	GtkWidget *btn;
 	RelOptInfo *rel;
 	char * buff;
 	int pos;
 
-	// title
+	// writing the title
 	lbl = gtk_label_new( NULL );
 	gtk_label_set_markup(GTK_LABEL(lbl), typeStr);
 
-	// info
+	// writing all the path's info to the label
 	pos = 0;
 	buff = malloc(sizeof(char)*CSTR_BUFF);
 	rel = pwt->path->parent;
-
 	pos += snprintf(buff+pos, CSTR_BUFF-pos, "<span size=\"x-small\">");
-
 	pos += snprintf(buff+pos, CSTR_BUFF-pos,
 			"curr %.2f..%.2f\n", pwt->path->startup_cost,pwt->path->total_cost);
-
 	pos = cstr_rel(buff, pos, CSTR_BUFF-1, pwt->ui->plannerinfo, rel);
-
 	if(pwt->cost_updated) {
 		pos += snprintf(buff+pos, CSTR_BUFF-pos,
 				"orig %.2f..%.2f\n", pwt->orig_startup_cost, pwt->orig_total_cost);
 	}
-
 	pos += snprintf(buff+pos, CSTR_BUFF-pos, "</span>");
 	lblInfo = gtk_label_new( NULL );
 	gtk_label_set_markup(GTK_LABEL(lblInfo), buff);
 
-	grid = (GtkGrid*)gtk_grid_new();
-	gtk_grid_attach(grid, lbl, 0,0,1,1);
-	gtk_grid_attach(grid, lblInfo, 0,1,1,1);
 
+
+
+	// the estimate text box and button
+	estBtn = gtk_button_new_with_label("change est");
+	g_signal_connect(G_OBJECT(estBtn), "clicked", G_CALLBACK(btn_change_estimate_clicked), pwt);
+	spnEst = (GtkSpinButton*)gtk_spin_button_new_with_range(1, 2147483648, 100);
+	printf("ROWS: %.2f\n",  pwt->path->rows);
+	gtk_spin_button_set_value (spnEst, pwt->path->rows);
+	pwt->spnEst = spnEst;
+
+	//the button the that updates as a result of the drop down list
+	btn = gtk_button_new_with_label("change");
+	g_signal_connect(G_OBJECT(btn), "clicked", G_CALLBACK(*onclick), pwt);
+
+	// adding everything row by row
+	grid = (GtkGrid*)gtk_grid_new();
+	gtk_grid_attach(grid, lbl,                    0,0,1,1);
+	gtk_grid_attach(grid, GTK_WIDGET(spnEst),     0,1,1,1);
+	gtk_grid_attach(grid, GTK_WIDGET(estBtn),     0,2,1,1);
+	gtk_grid_attach(grid, lblInfo,                0,3,1,1);
+	gtk_grid_attach(grid, GTK_WIDGET(ddl),        0,4,1,1);
+	gtk_grid_attach(grid, btn,                    0,5,1,1);
 	gtk_widget_show(GTK_WIDGET(lbl));
+	gtk_widget_show(GTK_WIDGET(spnEst));
+	gtk_widget_show(GTK_WIDGET(estBtn));
 	gtk_widget_show(GTK_WIDGET(lblInfo));
+	gtk_widget_show(GTK_WIDGET(ddl));
+	gtk_widget_show(btn);
 	gtk_widget_show(GTK_WIDGET(grid));
 	return grid;
 }
 
-static void add_btn(
-		PathWrapperTree * pwt,
-		GtkGrid* grid,
-		void (*onclick)(GtkWidget*, gpointer)) {
-	GtkWidget *btn;
-	btn = gtk_button_new_with_label("change");
-	g_signal_connect(G_OBJECT(btn), "clicked", G_CALLBACK(*onclick), pwt);
-	gtk_grid_attach(grid, btn, 0,3,1,1);
-	gtk_widget_show(btn);
-}
-
 static GtkWidget * create_join_widget_from_path(
 		PathWrapperTree * pwt,
-		char * typeStr,
-		void (*onclick)(GtkWidget*, gpointer)
+		char * typeStr
 		) {
 	GtkComboBoxText * ddl;
-	GtkGrid* grid = create_grid_from_path(
-		pwt,
-		typeStr,
-		onclick
-	);
 
 	ddl = (GtkComboBoxText*)gtk_combo_box_text_new();
 	gtk_combo_box_text_append_text(ddl, DDL_HASHJOIN_OPTION);
 	gtk_combo_box_text_append_text(ddl, DDL_MERGEJOIN_OPTION);
 	gtk_combo_box_text_append_text(ddl, DDL_NLJ_OPTION);
-	gtk_grid_attach(grid, GTK_WIDGET(ddl), 0,2,1,1);
-	gtk_widget_show(GTK_WIDGET(ddl));
 	pwt->ddl = ddl;
 
-	add_btn(pwt, grid, onclick);
-	return GTK_WIDGET(grid);
+	return GTK_WIDGET(
+			create_grid_from_path(
+					pwt,
+					typeStr,
+					ddl,
+					&btn_change_join_clicked
+				)
+	);
 }
 
 
-static char * DDL_SEQSCAN_OPTION = "Sequence Scan";
-static char * DDL_IDXSCAN_OPTION = "Index Scan";
-
 static GtkWidget * create_leaf_widget_from_path(
 		PathWrapperTree * pwt,
-		char * typeStr,
-		void (*onclick)(GtkWidget*, gpointer)
+		char * typeStr
 		) {
 	GtkComboBoxText * ddl;
-	GtkGrid* grid = create_grid_from_path(
-		pwt,
-		typeStr,
-		onclick
-	);
 
 	ddl = (GtkComboBoxText*)gtk_combo_box_text_new();
 	gtk_combo_box_text_append_text(ddl, DDL_SEQSCAN_OPTION);
 	gtk_combo_box_text_append_text(ddl, DDL_IDXSCAN_OPTION);
-	gtk_grid_attach(grid, GTK_WIDGET(ddl), 0,2,1,1);
-	gtk_widget_show(GTK_WIDGET(ddl));
 	pwt->ddl = ddl;
 
-	add_btn(pwt, grid, onclick);
-	return GTK_WIDGET(grid);
+	return GTK_WIDGET(
+			create_grid_from_path(
+					pwt,
+					typeStr,
+					ddl,
+					&btn_change_scan_clicked
+				)
+	);
 }
 
 
 static GtkWidget * create_hash_join_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_join_widget_from_path(pwt, "<span size=\"x-small\">Hash Join</span>", &btn_change_join_clicked)
+			create_join_widget_from_path(
+				pwt,
+				"<span size=\"x-small\">Hash Join</span>"
+			)
 		);
 }
 
 static GtkWidget * create_merge_join_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_join_widget_from_path(pwt, "<span size=\"x-small\">Merge Join</span>", &btn_change_join_clicked)
+			create_join_widget_from_path(
+					pwt,
+					"<span size=\"x-small\">Merge Join</span>"
+			)
 		);
 }
 
 static GtkWidget * create_nested_loop_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_join_widget_from_path(pwt, "<span size=\"x-small\">Nested Loop</span>", &btn_change_join_clicked)
+			create_join_widget_from_path(
+					pwt,
+					"<span size=\"x-small\">Nested Loop</span>"
+					)
 		);
 }
 
 static GtkWidget * create_seq_scan_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_leaf_widget_from_path(pwt, "<span size=\"x-small\">Sequence Scan</span>", &btn_change_scan_clicked)
+			create_leaf_widget_from_path(
+					pwt,
+					"<span size=\"x-small\">Sequence Scan</span>"
+			)
 		);
 }
 
 static GtkWidget * create_idx_scan_widget(PathWrapperTree* pwt) {
 	return GTK_WIDGET(
-			create_leaf_widget_from_path(pwt, "<span size=\"x-small\">Index Scan</span>", &btn_change_scan_clicked)
+			create_leaf_widget_from_path(
+					pwt,
+					"<span size=\"x-small\">Index Scan</span>"
+			)
 		);
 }
 
@@ -454,9 +505,46 @@ static void setup_grid(UIState * state) {
 	gtk_widget_show(GTK_WIDGET(state->scrolledwindow));
 }
 
-void prompt_user_for_plan(PlannerInfo *root, Path **cheapest_path) {
+static void prompt_user_for_plan_inner(Path **cheapest_path, UIState * state) {
+	// setup the grid and ui state
+	state->pwt = constructPWT(state, *cheapest_path);
+	state->height = compute_height(state->pwt);
+	state->grid = NULL;
+	state->scrolledwindow = NULL;
+	setup_grid(state);
+}
+
+void prompt_user_for_plan(
+		PlannerInfo *root,
+		List *tlist,
+		double tuple_fraction,
+		double limit_tuples,
+		query_pathkeys_callback qp_callback,
+		void *qp_extra,
+		Path **cheapest_path,
+		Path **sorted_path,
+		double *num_groups
+		) {
 	UIState state;
 	GtkWindow *window;
+	// setup the planner for overridden values:
+	HASHCTL   hash_ctl;
+
+	/* Create the hash table */
+	MemSet(&hash_ctl, 0, sizeof(hash_ctl));
+	hash_ctl.keysize = sizeof(Relids);
+	hash_ctl.entrysize = sizeof(double);
+	hash_ctl.hash = bitmap_hash;
+	hash_ctl.match = bitmap_match;
+	hash_ctl.hcxt = CurrentMemoryContext;
+	if(root->overriddenEstimates == NULL) {
+		root->overriddenEstimates = hash_create("PlannerInfoOverriddenEstimates",
+								256L,
+								&hash_ctl,
+						HASH_ELEM | HASH_FUNCTION | HASH_COMPARE | HASH_CONTEXT);
+	}
+
+
 
 	// setup GUI stuff
 	gtk_init(NULL, NULL);
@@ -466,14 +554,17 @@ void prompt_user_for_plan(PlannerInfo *root, Path **cheapest_path) {
 	gtk_container_set_border_width(GTK_CONTAINER(window), 10);
 	gtk_window_set_default_size(window, 1500, 900);
 
-	// setup the grid and ui state
-	state.plannerinfo = root;
-	state.pwt = constructPWT(&state, *cheapest_path);
-	state.height = compute_height(state.pwt);
-	state.grid = NULL;
-	state.scrolledwindow = NULL;
 	state.window = window;
-	setup_grid(&state);
+	state.plannerinfo = root;
+	state.tlist = tlist;
+	state.tuple_fraction = tuple_fraction;
+	state.limit_tuples = limit_tuples;
+	state.qp_callback = qp_callback;
+	state.qp_extra = qp_extra;
+	state.cheapest_path = cheapest_path;
+	state.sorted_path = sorted_path;
+	state.num_groups = num_groups;
+	prompt_user_for_plan_inner(cheapest_path,&state);
 
 	// show UI, and wait for the user to close it
 	gtk_widget_show(GTK_WIDGET(window));

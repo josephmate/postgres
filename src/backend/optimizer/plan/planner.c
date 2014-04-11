@@ -1211,6 +1211,10 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		 * clause, distinct clause, etc.  query_planner will also estimate the
 		 * number of groups in the query.
 		 */
+		// i was too lazy to figure out where the PlannerInfo was initialized, so
+		// i set the overriddedEstimates object here. For this demo, there are no
+		// overridenEstimates
+		root->overriddenEstimates = NULL;
 		query_planner(root, sub_tlist, tuple_fraction, sub_limit_tuples,
 					  standard_qp_callback, &qp_extra,
 					  &cheapest_path, &sorted_path, &dNumGroups);
