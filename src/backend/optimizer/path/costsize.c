@@ -285,7 +285,6 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	Cost		cpu_per_tuple;
 	double		tuples_fetched;
 	double		pages_fetched;
-	bool		costOverridden;
 
 	/* Should only be applied to base relations */
 	Assert(IsA(baserel, RelOptInfo) &&
@@ -293,35 +292,7 @@ cost_index(IndexPath *path, PlannerInfo *root, double loop_count)
 	Assert(baserel->relid > 0);
 	Assert(baserel->rtekind == RTE_RELATION);
 
-
-	costOverridden = false;
-
-	/**
-	 * If the estimate has been overridden, return it
-	 */
-	if(root->overriddenEstimates != NULL) {
-		OverriddenEstimatesEntry * entry;
-		entry = (OverriddenEstimatesEntry *) hash_search(
-				root->overriddenEstimates,
-				&(baserel->relids),
-				HASH_FIND, NULL);
-		if(entry != NULL) {
-			costOverridden = true;
-			printf("overridden to:       %ld         %.2f\n", (long)baserel, entry->estimate);
-			path->path.rows = entry->estimate;
-		}
-	}
-	/* Mark the path with the correct row estimate */
-	if(!costOverridden) {
-		if (path->path.param_info)
-		{
-			path->path.rows = path->path.param_info->ppi_rows;
-		}
-		else
-		{
-			path->path.rows = baserel->rows;
-		}
-	}
+	getEstimatedRows(&path->path, root, baserel, path->path.param_info);
 	if (path->path.param_info)
 	{
 		/* also get the set of clauses that should be enforced by the scan */
@@ -3493,6 +3464,20 @@ set_baserel_size_estimates(PlannerInfo *root, RelOptInfo *rel)
 							   NULL);
 
 	rel->rows = clamp_row_est(nrows);
+	if (root->overriddenEstimates != NULL) {
+		OverriddenEstimatesEntry * entry;
+		entry = (OverriddenEstimatesEntry *) hash_search(
+				root->overriddenEstimates,
+				&(rel->relids),
+				HASH_FIND,
+				NULL);
+		if (entry != NULL) {
+			printf("overridden to:       %ld         %.2f\n", (long) rel,
+					entry->estimate);
+			rel->rows = entry->estimate;
+		}
+	}
+
 
 	cost_qual_eval(&rel->baserestrictcost, rel->baserestrictinfo, root);
 
