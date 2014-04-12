@@ -1,0 +1,61 @@
+\documentclass[letterpaper,10pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{cancel}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{verbatim}
+\usepackage{scrextend}
+\usepackage{longtable}
+\usepackage{framed}
+\usepackage{amssymb}
+\usepackage{wasysym}
+\usepackage{multicol}
+\usepackage{graphicx}
+\usepackage{color}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage[utf8]{inputenc}
+\usepackage[mathletters]{ucs}
+\usepackage{hyperref}
+\usepackage{tikz,tkz-euclide}
+
+\hypersetup
+{
+  colorlinks=false,
+	pdfborder={0 0 0}
+}
+
+
+\pagestyle{fancy}
+\lhead{Joseph Mate - jmate - 20246021}
+\rhead{CS 648 - Professor Ilyas - UI Optimizer}
+\DeclareRobustCommand\iff{\;\Longleftrightarrow\;}
+
+\begin{document}
+
+\raggedright
+
+\setlength{\columnseprule}{0.5pt}
+
+
+\section{Introduction}
+The Postgres query planner does not necessarily return the best plan even with
+interesting orders. One reason is the estimated numbers of rows returned by a
+scan or join can be way off.
+
+\section{Features}
+UI
+
+Change Joins
+
+Reoptimize with overridden num of rows returned
+
+\section{How it Works}
+
+\section{References}
+
+\end{document}
