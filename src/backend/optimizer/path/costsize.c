@@ -3550,13 +3550,34 @@ set_joinrel_size_estimates(PlannerInfo *root, RelOptInfo *rel,
 						   SpecialJoinInfo *sjinfo,
 						   List *restrictlist)
 {
+	bool overridden;
+	overridden = false;
 	printf("outer estimate:      %ld         %.2f\n", (long)outer_rel, outer_rel->rows);
 	printf("inner estimate:      %ld         %.2f\n", (long)inner_rel, inner_rel->rows);
-	rel->rows = calc_joinrel_size_estimate(root,
-										   outer_rel->rows,
-										   inner_rel->rows,
-										   sjinfo,
-										   restrictlist);
+
+	if (root->overriddenEstimates != NULL) {
+		OverriddenEstimatesEntry * entry;
+		entry = (OverriddenEstimatesEntry *) hash_search(
+				root->overriddenEstimates,
+				&(rel->relids),
+				HASH_FIND,
+				NULL);
+		if (entry != NULL) {
+			printf("overridden to:       %ld         %.2f\n",
+					(long) rel,
+					entry->estimate);
+			overridden = true;
+			rel->rows = entry->estimate;
+		}
+	}
+
+	if(!overridden) {
+		rel->rows = calc_joinrel_size_estimate(root,
+												 outer_rel->rows,
+												 inner_rel->rows,
+												 sjinfo,
+												 restrictlist);
+	}
 }
 
 /*
