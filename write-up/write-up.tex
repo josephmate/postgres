@@ -4,7 +4,7 @@
 \usepackage{lmodern}
 \usepackage{amsmath}
 \usepackage{cancel}
-\usepackage[margin=1.25in]{geometry}
+\usepackage[margin=1.1in]{geometry}
 \usepackage{verbatim}
 \usepackage{scrextend}
 \usepackage{longtable}
@@ -46,20 +46,19 @@
 \section{Introduction}
 The Postgres query planner does not necessarily return a good plan even with
 interesting orders. As mentioned in the CORDS paper, one reason is the estimated
-numbers of rows returned by a scan or join can be way off \cite{Ilyas04} due to
+number of rows returned by a scan or join can be way off \cite{Ilyas04} due to
 the independence assumption falling apart. \\[0.5cm]
 
-For instance, imagine the estimate claiming that one row is returned from both
-relations in a join. If there are many clauses that are dependant on each other,
+For instance, if there are many clauses that are dependant on each other,
 the optimizer might estimate one row because of the independence assumption of
 AND clauses. As a result, the optimizer might perform a nested loop join because
-the single row fits in memory. An example where clause is looking for rows
+the single row fits in memory. An example where clause could be looking for rows
 belonging to a particular city in a province in a country on a continent. None
 of the values are independent and as a result their individual probabilities
 should not be multiplied.  \\[0.5cm]
 
 As a result, this prototype was created to explore the possibility of a database
-user manually manipulating the plan, or changing the estimates of the number
+user manually manipulating the plan, or changing the estimates of the number of
 rows returned from a base or joined relation. The primary use case is for
 queries that are expected to take hours or days to complete. Additionally, this
 tool can be used for queries that are expected to be used many times. If used in
@@ -69,8 +68,8 @@ significantly exceed the time saved in query processing.
 \section{Features}
 The prototype begins by displaying the plan that the optimizer initially
 computes. The UI can display any number of levels of joins. From that UI, you
-can change which join algorithm should be applied on two relations. Lastly, the
-UI also allows you to modify the estimated number of rows for each relation
+can change which join algorithm should be applied on the two relations. Lastly,
+the UI also allows you to modify the estimated number of rows for each relation
 and then the query planner searches for a new plan using the new estimates.
 
 \section{How it Works}
@@ -79,9 +78,10 @@ other challenges encountered are not included here to keep the report brief.
 
 \subsection{UI}
 The UI was built using GTK+. The most complicated component of the UI is the
-display of the plan. This was solved by applying a table GUI abstraction, which a
-GUI widget can be placed at any row and column of the table. The following
-diagram illustrates how the formula was derived.
+display of the plan. This was solved by applying a table GUI abstraction, where
+a plan node widget can be placed at any row and column of the table. A tree
+structure can be simulated in the table. The following diagram illustrates how
+the formula was derived.
 
 \includegraphics[scale=0.5]{table-derivation.png}
 
@@ -110,8 +110,8 @@ join with the one selected. A screenshot
 is provided below.
 
 \begin{center}
-\includegraphics[scale=0.5]{join-ddl.png}
-\includegraphics[scale=0.5]{join-ddl-selected.png}
+\includegraphics[scale=0.7]{join-ddl.png}
+\includegraphics[scale=0.7]{join-ddl-selected.png}
 \end{center}
 
 \subsection{Changing a Relation's Rows Estimates}
@@ -128,7 +128,7 @@ rows by changing the textbox provided inside the GUI widget representing that
 relation and then hits . A screenshot below is provided for reference.
 
 \begin{center}
-\includegraphics[scale=0.5]{change-estimate.png}
+\includegraphics[scale=0.7]{change-estimate.png}
 \end{center}
 
 
